@@ -271,6 +271,38 @@ test("a company-file hit is labelled by its file, not by a blank session row", a
   assert.match(out, /_company/, "the row still names the source file");
 });
 
+test("three developers on one project all appear in one brief, newest handoff wins", async () => {
+  // The whole reason a shared memory exists: a fourth developer arriving reads
+  // one brief and sees what all three before them decided, not just the last
+  // one's. Each decided-against is a different person's, and only the newest
+  // Next — regardless of who wrote it — is the live handoff.
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "nacre-team-")));
+  await writeFile(join(dir, "_company.md"), "---\ntype: nacre-company\n---\n\nOne Redis, shared.\n");
+  await mkdir(join(dir, "atlas"), { recursive: true });
+  await writeFile(join(dir, "atlas", "_project.md"),
+    "---\nproject: atlas\nrepos: [atlas-api, atlas-web]\nteams: [devs]\n---\n\n# Atlas\n");
+  // Three sessions, three authors, ascending timestamps. carol's is newest.
+  const sessions: Array<[string, string, string, string]> = [
+    ["alice", "2026-08-01_09-00-00", "Sharding the queue — one Redis for two products.", "Wire the new header path."],
+    ["bob", "2026-08-03_11-00-00", "A second cache tier — the shared instance already caps us.", "Delete the legacy header reader."],
+    ["carol", "2026-08-06_14-30-00", "Rewriting the poller in a new language mid-quarter.", "Land the poller refactor behind a flag."],
+  ];
+  for (const [who, stamp, against, next] of sessions) {
+    await mkdir(join(dir, "atlas", "devs", who), { recursive: true });
+    await writeFile(join(dir, "atlas", "devs", who, `atlas-${stamp}.md`),
+      `---\nproject: atlas\nwho: ${who}\nrepos: [atlas-api]\n---\n\n## Summary\n\n${who} worked.\n\n`
+        + `## Decided against\n\n* ${against}\n\n## Next\n\n${next}\n`);
+  }
+  const out = await brief(dir, "atlas");
+  // Every developer's decision is present, none crowded out by another.
+  assert.match(out, /Sharding the queue/, "alice's decision is missing");
+  assert.match(out, /A second cache tier/, "bob's decision is missing");
+  assert.match(out, /Rewriting the poller/, "carol's decision is missing");
+  // The handoff is the newest session's, whoever wrote it — not the first read.
+  assert.match(out, /## Handoff\n\nLand the poller refactor behind a flag/, "the newest handoff must win");
+  assert.doesNotMatch(out, /## Handoff\n\nWire the new header path/, "an older handoff shadowed the newest");
+});
+
 test("the server speaks JSON-RPC on stdio and writes nothing else", async () => {
   // The real failure this guards: one stray console.log corrupts the stream and
   // the client reports a parse error instead of the line that caused it.

@@ -741,6 +741,67 @@ test("two people publishing in the same window both survive", async () => {
   });
 });
 
+test("three people publishing in the same window all survive", async () => {
+  // n=2 is the minimum that proves the race; a real team is larger, and the
+  // failure that only appears at n>=3 is the second loser rebasing onto a base
+  // the first loser already moved. Each of the two losers must recover with the
+  // exact command the skill documents, in sequence, and all three logs must land
+  // with nothing overwritten.
+  await withHome(async (home: string) => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const git = promisify(execFile);
+    const origin = join(home, "origin.git");
+    await git("git", ["init", "-q", "--bare", "-b", "main", origin]);
+
+    const clone = async (name: string) => {
+      const dir = join(home, name);
+      await git("git", ["clone", "-q", origin, dir]);
+      await git("git", ["-C", dir, "config", "user.email", `${name}@acme.dev`]);
+      await git("git", ["-C", dir, "config", "user.name", name]);
+      return dir;
+    };
+
+    const alice = await clone("alice");
+    await writeFile(join(alice, "_company.md"), "---\ntype: nacre-company\n---\n\nfacts\n");
+    await git("git", ["-C", alice, "add", "-A"]);
+    await git("git", ["-C", alice, "commit", "-qm", "seed"]);
+    await git("git", ["-C", alice, "push", "-q"]);
+
+    // bob and carol both clone the seed, so all three compose against one base.
+    const bob = await clone("bob");
+    const carol = await clone("carol");
+
+    for (const [dir, who] of [[alice, "alice"], [bob, "bob"], [carol, "carol"]] as const) {
+      await writeFile(join(dir, `atlas-${who}.md`), `---\nwho: ${who}\n---\n\nlog\n`);
+      await git("git", ["-C", dir, "add", "-A"]);
+      await git("git", ["-C", dir, "commit", "-qm", `log(atlas): ${who}`]);
+    }
+
+    // Alice wins the race; bob and carol both lose against the same base.
+    await git("git", ["-C", alice, "push", "-q"]);
+    await assert.rejects(git("git", ["-C", bob, "push", "-q"]), "bob must lose to alice");
+    await assert.rejects(git("git", ["-C", carol, "push", "-q"]), "carol must lose to alice");
+
+    // bob recovers first and pushes. carol's base is now two commits stale — the
+    // n>=3 case: her rebase lands on top of both alice's and bob's work.
+    await git("git", ["-C", bob, "pull", "--rebase", "--autostash", "-q"]);
+    await git("git", ["-C", bob, "push", "-q"]);
+    await assert.rejects(git("git", ["-C", carol, "push", "-q"]), "carol still loses, now to bob");
+    await git("git", ["-C", carol, "pull", "--rebase", "--autostash", "-q"]);
+    await git("git", ["-C", carol, "push", "-q"]);
+
+    const check = join(home, "check");
+    await git("git", ["clone", "-q", origin, check]);
+    await access(join(check, "atlas-alice.md"));
+    await access(join(check, "atlas-bob.md"));
+    await access(join(check, "atlas-carol.md"));
+
+    const { stdout } = await git("git", ["-C", check, "log", "--oneline"]);
+    assert.equal(stdout.trim().split("\n").length, 4, "seed plus three logs, linear, nothing lost");
+  });
+});
+
 test("the publish skill still documents the retry", async () => {
   // Cheap guard on an expensive lesson: without this line a bare push fails
   // the first time two teammates publish within minutes of each other.
