@@ -216,6 +216,61 @@ test("a failure is content the model can read, not a vanished call", async () =>
   }
 });
 
+test("one project's brief never carries another project's constraints", async () => {
+  // The isolation the skill states as a rule ("Never read another project's
+  // tree"). Company files are shared on purpose; a project LOG's decided-against
+  // is not, and a brief that leaked beacon's into atlas would hand a session a
+  // constraint the team never agreed for the work in front of it.
+  const dir = await memory();
+  await mkdir(join(dir, "beacon", "devs", "carol"), { recursive: true });
+  await writeFile(join(dir, "beacon", "_project.md"),
+    "---\nproject: beacon\nrepos: [beacon-api]\nteams: [devs]\n---\n\n# Beacon\n");
+  await writeFile(
+    join(dir, "beacon", "devs", "carol", "beacon-2026-08-02_10-00-00.md"),
+    "---\nproject: beacon\nwho: carol\n---\n\n## Decided against\n\n* Sharding beacon's queue — a beacon-only choice.\n",
+  );
+  const out = await brief(dir, "atlas");
+  assert.doesNotMatch(out, /Sharding beacon's queue/, "a sibling project's decided-against leaked in");
+  assert.match(out, /starves beacon's workers/, "atlas's own constraint is still present");
+});
+
+test("the handoff section is absent when no live log carries a Next", async () => {
+  // handoff = the newest live log with a `## Next`. A project whose logs never
+  // wrote one must not sprout an empty `## Handoff` heading — an empty section
+  // reads as a handoff that said nothing, which is not the same as no handoff.
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "nacre-noh-")));
+  await writeFile(join(dir, "_company.md"), "---\ntype: nacre-company\n---\n\nShared nothing.\n");
+  await mkdir(join(dir, "atlas", "devs", "alice"), { recursive: true });
+  await writeFile(join(dir, "atlas", "_project.md"),
+    "---\nproject: atlas\nrepos: [atlas-api]\nteams: [devs]\n---\n\n# Atlas\n");
+  await writeFile(join(dir, "atlas", "devs", "alice", "atlas-2026-08-01_09-14-03.md"),
+    "---\nproject: atlas\nwho: alice\n---\n\n## Summary\n\nGroundwork, no follow-up named.\n");
+  const out = await brief(dir, "atlas");
+  assert.doesNotMatch(out, /## Handoff/, "an empty handoff heading appeared");
+  assert.match(out, /Groundwork/, "the recent summary is still there");
+});
+
+test("a project with a roster but no logs says so, rather than rendering blank", async () => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "nacre-empty-")));
+  await writeFile(join(dir, "_company.md"), "---\ntype: nacre-company\n---\n\nShared nothing.\n");
+  await mkdir(join(dir, "atlas"), { recursive: true });
+  await writeFile(join(dir, "atlas", "_project.md"),
+    "---\nproject: atlas\nrepos: [atlas-api]\nteams: [devs]\n---\n\n# Atlas\n");
+  const out = await brief(dir, "atlas");
+  assert.match(out, /nothing written yet/, "an empty project must announce itself");
+});
+
+test("a company-file hit is labelled by its file, not by a blank session row", async () => {
+  // A company fact has no date and no author — it belongs to the company, not a
+  // session. Rendered in the log shape it opened " ·  · _company", which reads
+  // as missing data. The row must name the file instead.
+  const dir = await memory();
+  const out = await searchText(dir, "Redis", { project: "atlas", all: true });
+  assert.match(out, /Redis/, "the company fact is found");
+  assert.doesNotMatch(out, /·\s+·\s+_company/, "a company hit rendered as a blank session row");
+  assert.match(out, /_company/, "the row still names the source file");
+});
+
 test("the server speaks JSON-RPC on stdio and writes nothing else", async () => {
   // The real failure this guards: one stray console.log corrupts the stream and
   // the client reports a parse error instead of the line that caused it.

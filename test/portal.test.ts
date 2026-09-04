@@ -141,6 +141,57 @@ test("the seam graph carries counts, never log content", async () => {
   await drop(dir);
 });
 
+test("the graph page ships the filter and pin controls, and no NaN positions", async () => {
+  const dir = await fixture();
+  const { server, url } = await serve({ memory: dir, port: 0 });
+  try {
+    const body = await (await fetch(`${url}/graph`)).text();
+    // The two interactions must actually reach the page, not just the CSS.
+    assert.match(body, /id="seamfilter"/, "the filter input is absent");
+    assert.match(body, /function showNode/, "the pin/hover panel logic is absent");
+    assert.match(body, /svg\.filtering/, "the filter dim rule is absent");
+    // A layout that divided by zero or read a missing seed would serialise NaN
+    // into the node positions, and the force sim would then spread NaN to every
+    // node on the first tick. The seed data must be finite.
+    const seed = body.match(/<script type="application\/json" id="seamdata">([\s\S]*?)<\/script>/)?.[1] ?? "";
+    assert.ok(seed.length > 0, "the seam data block is missing");
+    assert.doesNotMatch(seed, /NaN/, "a node position serialised as NaN");
+    assert.doesNotMatch(seed, /\\u003cscript/i, "unrelated, but the JSON must stay inert");
+  } finally {
+    server.close();
+    await drop(dir);
+  }
+});
+
+test("the graph renders on a degenerate store: one node, and none", async () => {
+  // A single log is one person plus one project plus its repos — a graph with
+  // barely any edges, the case where a spring/charge layout most easily divides
+  // by zero. And an empty store has zero nodes, where every max/sqrt guard has
+  // to hold. Both must return a page, not a stack trace.
+  const one = await realpath(await mkdtemp(join(tmpdir(), "nacre-one-")));
+  await writeFile(join(one, "_company.md"), "---\ntype: nacre-company\n---\n\nx\n");
+  await mkdir(join(one, "atlas", "devs", "alice"), { recursive: true });
+  await writeFile(join(one, "atlas", "_project.md"),
+    "---\nproject: atlas\nrepos: [atlas-api]\nteams: [devs]\n---\n\n# Atlas\n");
+  await writeFile(join(one, "atlas", "devs", "alice", "atlas-2026-08-01_09-14-03.md"),
+    "---\nproject: atlas\nwho: alice\nrepos: [atlas-api]\n---\n\n## Summary\n\nOne session.\n");
+  const s1 = await serve({ memory: one, port: 0 });
+  try {
+    const r = await fetch(`${s1.url}/graph`);
+    assert.equal(r.status, 200, "one-node graph must render");
+    assert.doesNotMatch(await r.text(), /NaN/, "one-node layout produced NaN");
+  } finally { s1.server.close(); await drop(one); }
+
+  const none = await realpath(await mkdtemp(join(tmpdir(), "nacre-none-")));
+  await writeFile(join(none, "_company.md"), "---\ntype: nacre-company\n---\n\nx\n");
+  const s2 = await serve({ memory: none, port: 0 });
+  try {
+    const r = await fetch(`${s2.url}/graph`);
+    assert.equal(r.status, 200, "an empty store's graph must still render");
+    assert.doesNotMatch(await r.text(), /NaN/, "empty layout produced NaN");
+  } finally { s2.server.close(); await drop(none); }
+});
+
 test("search ranks live constraints above ordinary hits", async () => {
   const dir = await fixture();
   const hits = await search(dir, "cache", { all: true });
@@ -666,4 +717,49 @@ test("the browser script is valid JavaScript, which the compiler cannot check", 
 
   // And it has to actually parse. Function() compiles without executing.
   assert.doesNotThrow(() => new Function(js), "the client script must be syntactically valid");
+});
+
+test("the CLI search caps are env-tunable and a bad value falls back", async () => {
+  // The caps live in the CLI adapter, not the engine, so they are exercised
+  // through the built binary. Four logs with four matching lines each is
+  // sixteen hits; the default per-session cap of two shows eight and must say
+  // the other eight are hidden and how to see them. Raising the cap past the
+  // count removes the notice, and a zero or negative value must fall back to
+  // the default rather than truncate to nothing or throw.
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(execFile);
+  const bin = fileURLToPath(new URL("../bin/nacre.js", import.meta.url));
+
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "nacre-cap-")));
+  await writeFile(join(dir, "_company.md"), "---\ntype: nacre-company\n---\n\nnothing to match here\n");
+  await mkdir(join(dir, "atlas", "devs", "alice"), { recursive: true });
+  await writeFile(join(dir, "atlas", "_project.md"),
+    "---\nproject: atlas\nrepos: [atlas-api]\nteams: [devs]\n---\n\n# Atlas\n");
+  for (let i = 0; i < 4; i++) {
+    await writeFile(
+      join(dir, "atlas", "devs", "alice", `atlas-2026-08-0${i + 1}_10-00-00.md`),
+      `---\nproject: atlas\nwho: alice\n---\n\n## Summary\n\n`
+        + `widget one\nwidget two\nwidget three\nwidget four\n`,
+    );
+  }
+  const search = (env: NodeJS.ProcessEnv) =>
+    run(process.execPath, [bin, "search", "widget", "--memory", dir, "--all"], { env: { ...process.env, ...env } })
+      .then((r) => r.stdout);
+
+  try {
+    const def = await search({});
+    assert.match(def, /hits\[16\]/, "all sixteen matches are counted");
+    assert.match(def, /8 hidden/, "the default cap hides eight and says so");
+    assert.match(def, /NACRE_SEARCH_PER_SESSION/, "the notice names the knob to raise");
+
+    const raised = await search({ NACRE_SEARCH_PER_SESSION: "9", NACRE_SEARCH_LIMIT: "40" });
+    assert.doesNotMatch(raised, /hidden/, "raising the caps past the count shows everything");
+
+    const bad = await search({ NACRE_SEARCH_PER_SESSION: "0", NACRE_SEARCH_LIMIT: "-3" });
+    assert.match(bad, /hits\[16\]/, "a bad cap must not crash or empty the result");
+    assert.match(bad, /8 hidden/, "a bad cap falls back to the default of two per session");
+  } finally {
+    await drop(dir);
+  }
 });
