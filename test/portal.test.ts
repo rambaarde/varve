@@ -763,3 +763,103 @@ test("the CLI search caps are env-tunable and a bad value falls back", async () 
     await drop(dir);
   }
 });
+
+test("readLogs interleaves three developers' logs by time, not by folder", async () => {
+  // Logs live under per-person folders. A reader wants them newest-first across
+  // the whole team, so a bob log from Wednesday must sit between two alice logs
+  // from Tuesday and Thursday — ordering by stamp, never by which folder holds
+  // the file. This is what keeps "what happened last" honest on a shared store.
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "nacre-order-")));
+  await writeFile(join(dir, "_company.md"), "---\ntype: nacre-company\n---\n\nx\n");
+  await mkdir(join(dir, "atlas"), { recursive: true });
+  await writeFile(join(dir, "atlas", "_project.md"),
+    "---\nproject: atlas\nrepos: [atlas-api]\nteams: [devs]\n---\n\n# Atlas\n");
+  const rows: Array<[string, string]> = [
+    ["alice", "2026-08-04_09-00-00"],
+    ["carol", "2026-08-02_09-00-00"],
+    ["bob", "2026-08-03_09-00-00"],
+    ["alice", "2026-08-06_09-00-00"],
+    ["bob", "2026-08-01_09-00-00"],
+  ];
+  for (const [who, stamp] of rows) {
+    await mkdir(join(dir, "atlas", "devs", who), { recursive: true });
+    await writeFile(join(dir, "atlas", "devs", who, `atlas-${stamp}.md`),
+      `---\nproject: atlas\nwho: ${who}\n---\n\n## Summary\n\n${who} at ${stamp}.\n`);
+  }
+  const logs = await readLogs(dir, "atlas");
+  assert.deepEqual(
+    logs.map((l) => l.stamp),
+    ["2026-08-06_09-00-00", "2026-08-04_09-00-00", "2026-08-03_09-00-00", "2026-08-02_09-00-00", "2026-08-01_09-00-00"],
+    "logs must sort by time across every author's folder",
+  );
+  assert.deepEqual(logs.map((l) => l.who), ["alice", "alice", "bob", "carol", "bob"],
+    "the author order follows time, not the folder walk");
+  await drop(dir);
+});
+
+test("the seam graph counts three developers and the repo they share", async () => {
+  // Three people on one project, two of them touching the same repo. The graph
+  // must show three who-nodes, a repo whose session count is the sum across the
+  // developers who touched it, and one cross-repo seam from the single session
+  // that named two repos — never one seam per developer.
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "nacre-team-graph-")));
+  await writeFile(join(dir, "_company.md"), "---\ntype: nacre-company\n---\n\nx\n");
+  await mkdir(join(dir, "atlas"), { recursive: true });
+  await writeFile(join(dir, "atlas", "_project.md"),
+    "---\nproject: atlas\nrepos: [atlas-api, atlas-web]\nteams: [devs]\n---\n\n# Atlas\n");
+  const logs: Array<[string, string, string]> = [
+    ["alice", "2026-08-01_09-00-00", "[atlas-api]"],
+    ["alice", "2026-08-02_09-00-00", "[atlas-api]"],
+    ["bob", "2026-08-03_09-00-00", "[atlas-api, atlas-web]"], // the only cross-repo session
+    ["carol", "2026-08-04_09-00-00", "[atlas-web]"],
+  ];
+  for (const [who, stamp, repos] of logs) {
+    await mkdir(join(dir, "atlas", "devs", who), { recursive: true });
+    await writeFile(join(dir, "atlas", "devs", who, `atlas-${stamp}.md`),
+      `---\nproject: atlas\nwho: ${who}\nrepos: ${repos}\n---\n\n## Summary\n\nwork.\n`);
+  }
+  const g = seamGraph(await readLogs(dir, "atlas"));
+
+  const who = g.nodes.filter((n) => n.kind === "who");
+  assert.equal(who.length, 3, "three developers, three nodes");
+  assert.equal(g.nodes.find((n) => n.id === "who:alice")?.sessions, 2, "alice wrote two sessions");
+
+  // atlas-api is named by alice (twice) and bob (once): three sessions touched it.
+  assert.equal(g.nodes.find((n) => n.id === "repo:atlas-api")?.sessions, 3, "the shared repo sums across developers");
+  assert.equal(g.nodes.find((n) => n.id === "repo:atlas-web")?.sessions, 2, "atlas-web: bob and carol");
+
+  // alice's edge to atlas is her session count, not one edge per session.
+  const aliceAtlas = g.edges.find((e) => [e.a, e.b].sort().join(" ") === "project:atlas who:alice");
+  assert.equal(aliceAtlas?.weight, 2, "the who-project edge weight is sessions");
+
+  const seams = g.edges.filter((e) => e.seam);
+  assert.equal(seams.length, 1, "one session named two repos, so one seam");
+  assert.equal(g.crossRepo, 1, "cross-repo is counted in sessions, not developers");
+  await drop(dir);
+});
+
+test("a developer can supersede another developer's log", async () => {
+  // Corrections cross authors: bob's later session can retire alice's earlier
+  // one. Supersession keys on the log id, not the writer, and the retired log's
+  // constraints must both leave the live view and be counted so the absence is
+  // announced rather than silent.
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "nacre-super-")));
+  await writeFile(join(dir, "_company.md"), "---\ntype: nacre-company\n---\n\nx\n");
+  await mkdir(join(dir, "atlas", "devs", "alice"), { recursive: true });
+  await mkdir(join(dir, "atlas", "devs", "bob"), { recursive: true });
+  await writeFile(join(dir, "atlas", "_project.md"),
+    "---\nproject: atlas\nrepos: [atlas-api]\nteams: [devs]\n---\n\n# Atlas\n");
+  await writeFile(join(dir, "atlas", "devs", "alice", "atlas-2026-08-01_09-00-00.md"),
+    "---\nproject: atlas\nwho: alice\n---\n\n## Decided against\n\n* Alice's original call, later found wrong.\n");
+  await writeFile(join(dir, "atlas", "devs", "bob", "atlas-2026-08-05_09-00-00.md"),
+    "---\nproject: atlas\nwho: bob\nsupersedes: atlas-2026-08-01_09-00-00\n---\n\n## Summary\n\nCorrecting alice's account.\n");
+
+  const v = await projectView(dir, "atlas");
+  assert.ok(v, "the project resolves");
+  assert.equal(v!.count, 1, "the superseded log is not counted as live");
+  assert.equal(v!.superseded, 1, "the retirement is counted");
+  assert.ok(!v!.logs.some((l) => l.against.some((a) => /original call/.test(a))),
+    "the retired developer's constraint left the live view");
+  assert.equal(v!.supersededEntries, 1, "the retired constraint is counted so its absence is announced");
+  await drop(dir);
+});
