@@ -304,19 +304,45 @@ font-family:var(--mono);font-size:.68rem;color:var(--ink-3)}
 .gstage{position:relative;border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--sunk)}
 .gwrap svg{display:block;touch-action:none;cursor:grab}
 .gwrap svg:active{cursor:grabbing}
-.gbtn{margin-left:auto;font-family:var(--mono);font-size:.68rem;color:var(--ink-3);
+.gbtn{font-family:var(--mono);font-size:.68rem;color:var(--ink-3);
   background:none;border:1px solid var(--rule-2);border-radius:3px;padding:.2rem .5rem;cursor:pointer}
 .gbtn:hover{color:var(--ink);border-color:var(--ink-3)}
+/* Filter box: same idiom as the masthead search, so it reads as part of the
+   portal rather than a widget bolted onto the graph. Typing lights the nodes
+   whose label or kind matches and dims the rest — the one thing hover cannot
+   do. Hover answers "what touches this"; the filter answers "where is the
+   thing I already have a word for". */
+.gfilter{margin-left:auto;height:1.7rem;width:11rem;max-width:40vw;background:var(--sunk);
+  border:1px solid var(--rule);border-radius:6px;padding:0 .55rem;font:inherit;
+  font-family:var(--mono);font-size:.72rem;color:var(--ink)}
+.gfilter::placeholder{color:var(--ink-3)}
+.gfilter:focus-visible{outline:2px solid var(--ink);outline-offset:1px;border-color:var(--rule-2)}
+.gfilter::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
+.gstat .gbtn{margin-left:.5rem}
 /* Hover dims everything except the hovered node and what it touches. Reading a
    cluster means seeing its neighbourhood, and at any real size the rest is
    noise while you do that. */
 .gnode,.gedge,.gseam{transition:opacity .12s}
 svg.focused .gnode,svg.focused line{opacity:.13}
 svg.focused .gnode.lit,svg.focused .gnode.near,svg.focused line.near{opacity:1}
+/* Filtering dims on its own class so it never fights hover: a hover can still
+   light a neighbourhood on top of an active filter, and a mouseout cannot wipe
+   the filter out from under it. */
+svg.filtering .gnode,svg.filtering line{opacity:.1}
+svg.filtering .gnode.match{opacity:1}
 .ginfo{position:absolute;top:10px;right:10px;width:15rem;max-width:60%;padding:.7rem .8rem;
   background:var(--paper);border:1px solid var(--rule-2);border-radius:4px;
   opacity:0;transform:translateY(-3px);transition:opacity .12s,transform .12s;pointer-events:none}
 .ginfo.on{opacity:1;transform:none}
+/* Pinned: a click makes the panel stay, so its links can be reached. Hover is
+   transient and never needs pointer events; a pin does. */
+.ginfo.pinned{pointer-events:auto;border-color:var(--ink-3)}
+.ginfo .x{position:absolute;top:.45rem;right:.5rem;width:1.1rem;height:1.1rem;line-height:1;
+  background:none;border:0;color:var(--ink-3);font-size:.95rem;cursor:pointer;padding:0}
+.ginfo .x:hover{color:var(--ink)}
+.ginfo a.open{display:inline-block;margin:.5rem 0 0;font-family:var(--mono);font-size:.66rem;
+  color:var(--ink-2);border-bottom:1px solid var(--rule-2)}
+.ginfo a.open:hover{color:var(--ink);border-color:var(--ink-3)}
 .ginfo h5{font-family:var(--mono);font-size:.78rem;margin:0 0 .1rem;color:var(--ink)}
 .ginfo p{font-family:var(--mono);font-size:.66rem;color:var(--ink-3);margin:0 0 .45rem}
 .ginfo ul{list-style:none;margin:0;padding:0;max-height:11rem;overflow:auto}
@@ -330,8 +356,9 @@ svg.focused .gnode.lit,svg.focused .gnode.near,svg.focused line.near{opacity:1}
    one thing drawn at full strength. */
 .gseam{stroke:var(--ink);opacity:.95}
 /* Filled, so clusters read as mass at a glance — the reason for a force layout
-   at all. Sessions are size; kind is shape, because the palette is monochrome
-   and two greys are not a distinction anyone should have to squint at. */
+   at all. Sessions are size; kind is BOTH hue and shape, so the distinction
+   survives greyscale and colour-blindness both — the three hues below carry it
+   at a glance, and a square repo carries it again where colour cannot. */
 /* Three hues, and they are the only colour in the portal.
    The rest of the product is monochrome on purpose — it is a log, and colour
    there would be decoration. A graph is the one place hue does work no other
@@ -624,9 +651,14 @@ if(G){(function(){
     cam.x=sx-(sx-cam.x)*(k/cam.k);cam.y=sy-(sy-cam.y)*(k/cam.k);cam.k=k;applyCam()},{passive:false});
 
   G.addEventListener("pointerdown",function(ev){
-    moved=false;var a=ev.target.closest(".gnode");
-    if(a){var idx=+a.getAttribute("data-i");dragNode=N[idx];dragNode.fx=dragNode.x;dragNode.fy=dragNode.y;
-      a.classList.add("held");kick(0.3)}
+    /* Remember which node was pressed. Pin/unpin is resolved from THIS index at
+       pointerup, never re-hit-tested from the cursor: while the force sim is
+       live the node drifts, so the click event lands on empty canvas and a
+       cursor-based pin would miss the very node the user pressed. Not kicking
+       here also keeps a bare press from nudging the graph before the release. */
+    moved=false;downIdx=-1;var a=ev.target.closest(".gnode");
+    if(a){downIdx=+a.getAttribute("data-i");dragNode=N[downIdx];dragNode.fx=dragNode.x;dragNode.fy=dragNode.y;
+      a.classList.add("held")}
     else{var r=G.getBoundingClientRect();
       panning={mx:(ev.clientX-r.left)/r.width*W,my:(ev.clientY-r.top)/r.height*H,x:cam.x,y:cam.y}}
     G.setPointerCapture(ev.pointerId)});
@@ -642,41 +674,91 @@ if(G){(function(){
     if(dragNode){dragNode.fx=null;dragNode.fy=null;
       var h=G.querySelector(".held");if(h)h.classList.remove("held");
       dragNode=null;kick(0)}
-    panning=null;try{G.releasePointerCapture(ev.pointerId)}catch(_){}}
+    panning=null;try{G.releasePointerCapture(ev.pointerId)}catch(_){}
+    /* A press that never moved is a click. Toggle the pin on the node captured
+       at pointerdown; a press that started on empty canvas dismisses whatever
+       is pinned. showNode/clearNode/pinned/downIdx are all in this closure and
+       defined by the time any pointer event fires. */
+    if(!moved){
+      if(downIdx>=0){var was=pinned;pinned=-1;clearNode();
+        if(was!==downIdx){pinned=downIdx;showNode(downIdx,true)}}
+      else if(pinned>=0){pinned=-1;clearNode()}}
+    downIdx=-1;}
   G.addEventListener("pointerup",release);G.addEventListener("pointercancel",release);
-  /* A drag that ends on a node must not also follow its link. */
-  G.addEventListener("click",function(ev){if(moved)ev.preventDefault()},true);
-
   var near=[];for(i=0;i<N.length;i++)near.push([]);
   for(j=0;j<E.length;j++){near[E[j].s].push([E[j].t,j,E[j].w,E[j].m]);near[E[j].t].push([E[j].s,j,E[j].w,E[j].m])}
 
   function esc(s){return String(s).replace(/[&<>"]/g,function(c){
     return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 
-  G.addEventListener("mouseover",function(ev){
-    var a=ev.target.closest(".gnode");if(!a)return;
-    var idx=+a.getAttribute("data-i");
-    G.classList.add("focused");a.classList.add("lit");
+  /* Hover and pin light the same neighbourhood and fill the same panel, so both
+     go through showNode. The only difference is that a pin keeps pointer
+     events, gains a close control, and swaps the "click to pin" hint for a link
+     to the node's full page — the panel is transient on hover and durable on a
+     click. */
+  var pinned=-1,downIdx=-1;
+  function showNode(idx,pin){
+    var a=els[idx];G.classList.add("focused");a.classList.add("lit");
     var list=near[idx],rows="";
     for(var q=0;q<list.length;q++){
       els[list[q][0]].classList.add("near");lines[list[q][1]].classList.add("near");
       rows+="<li"+(list[q][3]?' class="s"':"")+">"+esc(N[list[q][0]].l)+"<b>"+list[q][2]+"</b></li>"}
-    if(info){var n=N[idx];
-      info.innerHTML="<h5>"+esc(n.l)+"</h5><p>"+n.t+" · "+n.s+" session"+(n.s===1?"":"s")
-        +"</p><ul>"+(rows||"<li>nothing yet</li>")+"</ul><p class=\"go\">click to open</p>";
-      info.classList.add("on")}});
-
-  G.addEventListener("mouseout",function(ev){
-    if(ev.relatedTarget&&ev.relatedTarget.closest&&ev.relatedTarget.closest(".gnode"))return;
+    if(info){var n=N[idx],href=a.getAttribute("href")||"";
+      info.innerHTML=(pin?'<button class="x" type="button" aria-label="close">×</button>':"")
+        +"<h5>"+esc(n.l)+"</h5><p>"+esc(n.t)+" · "+n.s+" session"+(n.s===1?"":"s")+"</p><ul>"
+        +(rows||"<li>nothing yet</li>")+"</ul>"
+        +(pin?'<a class="open" href="'+esc(href)+'">open full page →</a>'
+             :'<p class="go">click to pin</p>');
+      info.classList.add("on");info.classList.toggle("pinned",!!pin)}}
+  function clearNode(){
     G.classList.remove("focused");
     var lit=G.querySelectorAll(".lit,.near");
     for(var q=0;q<lit.length;q++)lit[q].classList.remove("lit","near");
-    if(info)info.classList.remove("on")});
+    if(info)info.classList.remove("on","pinned")}
+
+  /* While a node is pinned, hover is inert: the pinned panel is what the reader
+     is looking at, and letting a stray hover repaint it would be the panel
+     moving on its own. */
+  G.addEventListener("mouseover",function(ev){
+    if(pinned>=0)return;var a=ev.target.closest(".gnode");if(!a)return;
+    showNode(+a.getAttribute("data-i"),false)});
+  G.addEventListener("mouseout",function(ev){
+    if(pinned>=0)return;
+    if(ev.relatedTarget&&ev.relatedTarget.closest&&ev.relatedTarget.closest(".gnode"))return;
+    clearNode()});
+
+  /* Pin/unpin is handled at pointerup (above). The click event exists only to
+     stop a node's <a> link navigating away on a mouse click — the pin, not a
+     page load, is the response. A keyboard activation (Enter on a focused node)
+     reports detail===0 and is left to navigate, so the graph stays reachable
+     without a pointer. */
+  G.addEventListener("click",function(ev){if(ev.detail!==0)ev.preventDefault()},true);
+  /* The close button lives in the panel, a sibling of the svg, so its click
+     never reaches the handler above; dismiss it here. */
+  if(info)info.addEventListener("click",function(ev){
+    if(ev.target.closest(".x")){pinned=-1;clearNode()}});
+
+  /* Filter: light every node whose label or kind contains the query and dim the
+     rest. Independent of hover and pin — a filtered graph still hovers and
+     still pins. An empty box clears the filter entirely. */
+  var fbox=document.getElementById("seamfilter");
+  if(fbox)fbox.addEventListener("input",function(){
+    var q=fbox.value.trim().toLowerCase();
+    if(!q){G.classList.remove("filtering");
+      for(var i=0;i<N.length;i++)els[i].classList.remove("match");return}
+    G.classList.add("filtering");
+    for(var i=0;i<N.length;i++){
+      var n=N[i],hit=n.l.toLowerCase().indexOf(q)>=0||String(n.t).toLowerCase().indexOf(q)>=0;
+      els[i].classList.toggle("match",hit)}});
 
   var rst=document.getElementById("seamreset");
   if(rst)rst.addEventListener("click",function(){
     cam={x:0,y:0,k:1};applyCam();
     for(var q=0;q<N.length;q++){N[q].x=D.n[q].x0;N[q].y=D.n[q].y0;N[q].vx=0;N[q].vy=0;N[q].fx=null;N[q].fy=null}
+    /* Reset means a clean slate: drop the filter and any pin too. */
+    if(fbox){fbox.value="";G.classList.remove("filtering");
+      for(q=0;q<N.length;q++)els[q].classList.remove("match")}
+    pinned=-1;clearNode();
     kick(0)});
 
   applyCam();kick(0);
@@ -878,9 +960,9 @@ function renderGraph(g: Graph): string {
       const p = pos.get(n.id);
       if (!p) return "";
       const r = radius(n);
-      // The palette is monochrome by design, so kind is carried by SHAPE rather
-      // than hue: a square repo stays distinguishable in both themes and for
-      // anyone who cannot separate two greys.
+      // Kind is carried by hue (the CSS colours g-who/g-project/g-repo) and by
+      // SHAPE as well: a square repo stays distinguishable in both themes and
+      // for anyone who cannot separate the hues.
       const glyph = n.kind === "repo"
         ? `<rect x="${(-r).toFixed(1)}" y="${(-r).toFixed(1)}" width="${(r * 2).toFixed(1)}"`
           + ` height="${(r * 2).toFixed(1)}" rx="2"></rect>`
@@ -931,6 +1013,8 @@ function renderGraph(g: Graph): string {
     <span><b>${g.edges.length}</b> edges</span>
     <span><b>${g.logs}</b> sessions</span>
     <span><b>${g.crossRepo}</b> touched 2+ repos${g.logs ? ` · ${pct}%` : ""}</span>
+    <input id="seamfilter" class="gfilter" type="search" placeholder="filter nodes…"
+      autocomplete="off" spellcheck="false" aria-label="Filter graph nodes by name or kind">
     <button id="seamreset" class="gbtn" type="button">reset view</button>
   </div>
 
