@@ -506,17 +506,34 @@ async function main() {
       // six times and crowd out every other session that mentioned the same
       // thing — the opposite of what "what did the team decide" needs. The
       // portal still shows every line; this ceiling is the CLI's alone.
+      //
+      // Both caps are env-tunable, the same escape hatch create-ai-memory's
+      // ai-mem-search gives (AI_MEM_SEARCH_LIMIT / AI_MEM_SEARCH_PER_FILE): a
+      // reader who hits the ceiling can raise it in place rather than lose the
+      // hidden rows. A non-numeric or non-positive value falls back to the
+      // default rather than truncating to nothing or throwing.
+      const envInt = (name: string, fallback: number): number => {
+        const n = Number(process.env[name]);
+        return Number.isInteger(n) && n > 0 ? n : fallback;
+      };
+      const perSession = envInt("NACRE_SEARCH_PER_SESSION", 2);
+      const limit = envInt("NACRE_SEARCH_LIMIT", 12);
       const perLog = new Map<string, number>();
       const spread = hits.filter((h) => {
         const n = (perLog.get(h.id) ?? 0) + 1;
         perLog.set(h.id, n);
-        return n <= 2;
+        return n <= perSession;
       });
-      const shown = spread.slice(0, 12);
+      const shown = spread.slice(0, limit);
+      // Count first, then how many are hidden and why, then how to see them —
+      // the reader needs to know the result set is larger than the page before
+      // acting on the page, exactly as ai-mem-search reports its own cap.
+      const hidden = hits.length - shown.length;
       out(`hits[${hits.length}]{date,who,project,line}:`,
         ...shown.map((h) => `${h.date},${h.who},${h.project},${h.line.slice(0, 90)}`),
-        hits.length > shown.length
-          ? `(showing ${shown.length} of ${hits.length}, at most 2 per session — nacre serve for all)`
+        hidden > 0
+          ? `(showing ${shown.length} of ${hits.length}, ${hidden} hidden — at most ${perSession} per session;`
+            + ` raise NACRE_SEARCH_PER_SESSION / NACRE_SEARCH_LIMIT, narrow the term, or nacre serve for all)`
           : null,
         "help[]: nacre serve · nacre search <term> --all");
       return;
