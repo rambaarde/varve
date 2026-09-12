@@ -196,7 +196,32 @@ write the unshareable part, people write nothing at all — the honest log and t
 shareable log must be allowed to differ, or logging fails for reasons that look
 like laziness but are actually discretion.
 
-## 4. The gate — every time, in order
+## 4. Record a cross-project lesson — only if one exists
+
+Most sessions produce none. A **lesson** is failure→fix knowledge that will be
+true in a **different** project — a mistake and its fix a teammate on another
+repo would hit too. Project-specific detail stays in the log above; the lesson
+is the portable residue. The bar is the boundary, not the size: *"the GUI build
+needs an rpath to the Swift runtime"* is a lesson; *"renamed the rate-limit
+header"* is a log entry.
+
+Decide against what already exists — the same ADD / UPDATE / NOOP choice:
+
+1. **Search first.** Grep `{store}/_lessons/` for the symptom. Recall already
+   ranks lessons above logs, so a match usually surfaced earlier this session.
+2. **UPDATE** if one covers it: append a new dated `## <date> · <project>` entry
+   (**Problem** / **Solution**) to that same file. Correcting a wrong lesson is
+   worth more than adding a right one.
+3. **ADD** only when the trigger and the fix are both new:
+   `{store}/_lessons/<kebab-slug>.md`, frontmatter `type: nacre-lesson`,
+   `topic: <slug>`, then one `## <date> · <project>` entry.
+4. **NOOP** otherwise, and say so in one line. Most sessions are NOOP.
+
+Write the **Problem** as the symptom you would search for next time, not the
+diagnosis you ended with. A lesson is a new file or an append — never a rewrite
+of someone else's lesson body. It rides the same gate below.
+
+## 5. The gate — every time, in order
 
 **1. Strip** every `<!-- private -->` … `<!-- /private -->` block. Report the count.
 
@@ -250,7 +275,7 @@ gets through, **rotate the secret** — do not rewrite history, because that nee
 a force-push, which is the one operation that can silently drop other people's
 commits.
 
-## 5. Announce, if the team asked for it
+## 6. Announce, if the team asked for it
 
 **Only after the push succeeded**, and only if `NACRE_NOTIFY_URL` is set:
 
@@ -266,7 +291,7 @@ that does not exist.
 If the variable is not set, skip this silently. It is opt-in, and a team that has
 not configured it does not need to be told about it every session.
 
-## 6. Report
+## 7. Report
 
 ```text
 ok: published · atlas/devs/alice/atlas-2026-08-04_16-22-07.md
