@@ -7,10 +7,10 @@
  *
  * The order is the one nacre-load uses: urgency of not knowing, not recency.
  */
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import { exists, listProjects } from "./store.js";
+import { exists, listProjects, frontmatter } from "./store.js";
 import { age, projectStandards, projectView, search, unfilled } from "./portal.js";
 import type { Log } from "./portal.js";
 
@@ -162,6 +162,51 @@ function curated(text: string): string {
   );
 }
 
+/** A lesson's title and its newest dated Problem→Fix, condensed for the brief. */
+function lessonGist(name: string, text: string): string | null {
+  const fm = frontmatter(text);
+  const topic = typeof fm.topic === "string" ? fm.topic : "";
+  const title =
+    (topic && !topic.startsWith("[") ? topic : /^#\s+(.+)$/m.exec(text)?.[1]) ||
+    name.replace(/\.md$/, "");
+  // Dated entries are "## <date> · <project>" blocks; the newest is last.
+  const blocks = text.split(/^##\s+/m).slice(1);
+  const last = blocks[blocks.length - 1] || "";
+  const grab = (h: string): string => {
+    const m = new RegExp(`^###\\s+${h}\\s*\\n([\\s\\S]*?)(?=\\n###\\s|$)`, "m").exec(last);
+    return (m?.[1] ?? "").trim().replace(/\s+/g, " ");
+  };
+  const problem = grab("Problem");
+  const solution = grab("Solution");
+  if (!problem && !solution) return null; // unfilled template or malformed
+  const gist = [problem && `**Problem:** ${problem}`, solution && `**Fix:** ${solution}`]
+    .filter(Boolean)
+    .join("  ");
+  return `- **${title}** — ${gist}`;
+}
+
+/**
+ * Cross-project lessons (`_lessons/*.md`): failure→fix knowledge that outlives
+ * any one project. Surfaced in every brief, high and ahead of the logs — the
+ * sharpest "urgency of not knowing" is a mistake the company already paid for
+ * once. Files whose name starts with `_` (the template) are skipped.
+ */
+async function companyLessons(memory: string): Promise<string[]> {
+  const dir = join(memory, "_lessons");
+  let names: string[];
+  try {
+    names = (await readdir(dir)).filter((n) => n.endsWith(".md") && !n.startsWith("_"));
+  } catch {
+    return []; // no lessons folder yet — nothing to say
+  }
+  const items: string[] = [];
+  for (const name of names.sort()) {
+    const gist = lessonGist(name, await readFile(join(dir, name), "utf8"));
+    if (gist) items.push(gist);
+  }
+  return items.length ? [`## Lessons — learned across projects\n\n${items.join("\n")}`] : [];
+}
+
 async function companyFiles(memory: string): Promise<string[]> {
   const out: string[] = [];
   for (const [name, heading] of [
@@ -203,6 +248,7 @@ export async function brief(memory: string, project: string): Promise<string> {
   // longer gets to spend the constraints' share on the way past.
   const preamble: string[] = [head.join("\n")];
   preamble.push(...(await companyFiles(memory)));
+  preamble.push(...(await companyLessons(memory)));
 
   const standards = await projectStandards(memory, project);
   if (standards) {

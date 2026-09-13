@@ -100,6 +100,35 @@ test("brief drops unfilled template lines and HTML comments", async () => {
   assert.ok(!out.includes("must not survive"), "HTML comment leaked into the brief");
 });
 
+test("brief surfaces cross-project lessons, ahead of the logs", async () => {
+  const dir = await memory();
+  await mkdir(join(dir, "_lessons"), { recursive: true });
+  await writeFile(
+    join(dir, "_lessons", "gui-app-has-no-shell-path.md"),
+    `---\ntype: nacre-lesson\ntopic: "gui-app-has-no-shell-path"\n---\n\n# gui-app-has-no-shell-path\n\n## 2026-09-12 \u00b7 mnelia\n\n### Problem\nA macOS GUI app could not find ffmpeg on PATH.\n\n### Solution\nResolve binaries from the common install dirs, not just PATH.\n`,
+  );
+  const out = await brief(dir, "atlas");
+  assert.match(out, /Lessons/);
+  assert.match(out, /gui-app-has-no-shell-path/);
+  assert.match(out, /could not find ffmpeg/);
+  assert.ok(
+    out.indexOf("Lessons") < out.indexOf("Decided against"),
+    "a cross-project lesson should rank ahead of the logs",
+  );
+});
+
+test("an unfilled lesson template never leaks into the brief", async () => {
+  const dir = await memory();
+  await mkdir(join(dir, "_lessons"), { recursive: true });
+  await writeFile(
+    join(dir, "_lessons", "_lesson-template.md"),
+    `---\ntype: nacre-lesson\ntopic: "[Insert kebab-case slug]"\n---\n\n# [Insert slug]\n\n## [Date] \u00b7 [Project]\n\n### Problem\n[symptom]\n\n### Solution\n[fix]\n`,
+  );
+  const out = await brief(dir, "atlas");
+  assert.ok(!out.includes("Insert slug"), "template leaked into the brief");
+  assert.ok(!/^## Lessons/m.test(out), "an empty lessons section was rendered");
+});
+
 test("brief stays inside its token budget", async () => {
   const dir = await memory();
   await mkdir(join(dir, "atlas", "devs", "bob"), { recursive: true });

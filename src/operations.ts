@@ -115,6 +115,9 @@ export async function initStore({ store, storePath: pathFlag, who, force, allowP
   await mkdir(dir, { recursive: true });
   await cp(join(PKG_ROOT, "store-template", "_company.md"), join(dir, "_company.md"));
   await cp(join(PKG_ROOT, "store-template", "_standards.md"), join(dir, "_standards.md"));
+  await cp(join(PKG_ROOT, "store-template", "_lessons"), join(dir, "_lessons"), {
+    recursive: true,
+  });
   await cp(
     join(PKG_ROOT, "store-template", "_team", "_your-slug"),
     join(dir, "_team", `_${author}`),

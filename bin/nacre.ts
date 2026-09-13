@@ -21,6 +21,7 @@ import { search as searchMemory, projectView } from "../src/portal.js";
 import { serve } from "../src/serve.js";
 import { serve as serveMcp } from "../src/mcp.js";
 import { brief } from "../src/brief.js";
+import { lint as lintStore, sleep as bedtime, CONSOLIDATE_THRESHOLD } from "../src/maintenance.js";
 import { announcement, issueTemplate, notify } from "../src/notify.js";
 import { readLogs } from "../src/portal.js";
 
@@ -60,6 +61,8 @@ const USAGE = `nacre — one git-backed memory for a whole company
   nacre invite <github-user>     give a teammate access to the memory
   nacre notify                   announce the newest log to $NACRE_NOTIFY_URL
   nacre search <term>            one search, same ranking as the portal
+  nacre lint                     report store hygiene: unfilled files, weak lessons
+  nacre sleep                    the bedtime pass: lint + what to consolidate
   nacre mcp                      serve the memory to any MCP client (stdio)
 
   also works as \`nac\`
@@ -536,6 +539,40 @@ async function main() {
             + ` raise NACRE_SEARCH_PER_SESSION / NACRE_SEARCH_LIMIT, narrow the term, or nacre serve for all)`
           : null,
         "help[]: nacre serve · nacre search <term> --all");
+      return;
+    }
+
+    if (command === "lint") {
+      const binding = await resolveBinding();
+      const memory = await resolveStoreDir(memoryPath, binding?.store);
+      await ensureMemory(memory, binding?.store);
+      const findings = await lintStore(memory);
+      if (!findings.length) return out("clean · no hygiene issues in this memory");
+      out(
+        `issues[${findings.length}]{file,message}:`,
+        ...findings.map((f) => `${f.file} — ${f.message}`),
+        "help[]: fix these, or nacre sleep for the full bedtime pass",
+      );
+      return;
+    }
+
+    if (command === "sleep") {
+      const binding = await resolveBinding();
+      const memory = await resolveStoreDir(memoryPath, binding?.store);
+      await ensureMemory(memory, binding?.store);
+      const report = await bedtime(memory);
+      const lines: (string | null)[] = [
+        report.findings.length ? `lint[${report.findings.length}]:` : "lint: clean",
+        ...report.findings.map((f) => `  ${f.file} — ${f.message}`),
+        report.consolidation.length
+          ? `consolidate[${report.consolidation.length}] (${CONSOLIDATE_THRESHOLD}+ logs — distil into a lesson):`
+          : "consolidate: nothing large enough yet",
+        ...report.consolidation.map((c) => `  ${c.project} · ${c.logs} logs`),
+        // The honest boundary: nacre keeps every log because the brief reads
+        // every decided-against and risk from all of them. Sleep never sweeps.
+        "note: sleep reports only — it never archives; every log stays in recall by design",
+      ];
+      out(...lines);
       return;
     }
 
