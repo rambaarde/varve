@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.9.0](https://github.com/rambaarde/nacre/compare/v0.8.0...v0.9.0) (2026-09-13)
+
+
+### Features
+
+* **memory:** cross-project lessons, plus lint and sleep ([a8a47ca](https://github.com/rambaarde/nacre/commit/a8a47ca42e3e6dd7ce922d5f6d7adcdd58360334))
+* **memory:** cross-project lessons, plus lint and sleep ([3f78ce6](https://github.com/rambaarde/nacre/commit/3f78ce645f15fca2c3d52daaa20f3e56f9e1616b))
+* **memory:** cross-project lessons, plus lint and sleep ([6121239](https://github.com/rambaarde/nacre/commit/6121239eb75917b8567b3d5e8a392138e71fe83c))
+* **portal:** live force simulation on the seam graph ([ecc1e0e](https://github.com/rambaarde/nacre/commit/ecc1e0ece42ac425384ba716dba782478d71a565))
+* **portal:** live force simulation on the seam graph ([08fc652](https://github.com/rambaarde/nacre/commit/08fc6527345149e8a467dfc4f79ca34198a7af2b))
+* **portal:** live force simulation on the seam graph ([54d5796](https://github.com/rambaarde/nacre/commit/54d5796b6b5fbbc02d152ae2d8a3323570742d01))
+* **portal:** live graph filter + pinnable sheet, and env-tunable search caps ([15f6816](https://github.com/rambaarde/nacre/commit/15f6816667b95ecb7bf8f1212d4203f1b44c4c9d))
+* **portal:** live graph filter + pinnable sheet, env-tunable search caps, and tests ([8ddd135](https://github.com/rambaarde/nacre/commit/8ddd135d753a02be36dba87ac4a50609480f141f))
+* **portal:** live node filter and a pinnable sheet on the seam graph ([666e85c](https://github.com/rambaarde/nacre/commit/666e85ccc587732ff31a88beba8865906c39c750))
+* **portal:** the seam — an entity graph in nacre serve ([cee0696](https://github.com/rambaarde/nacre/commit/cee069680c24e16e98fe8b679e5c637aa714f634))
+* **portal:** the seam — an entity graph in nacre serve ([f1e22f5](https://github.com/rambaarde/nacre/commit/f1e22f50233d3cf4033618117ac89bd60224db04))
+* **portal:** the seam — an entity graph in nacre serve ([e51fa2d](https://github.com/rambaarde/nacre/commit/e51fa2d5f4788cddeb2fe026162458343a7c51fb))
+* **search:** make the CLI result caps env-tunable, and say what is hidden ([fda610e](https://github.com/rambaarde/nacre/commit/fda610edf3437345fd50331e8b62394141a15bc9))
+
+
+### Bug Fixes
+
+* **portal:** force-directed layout for the seam, not three columns ([3d662af](https://github.com/rambaarde/nacre/commit/3d662afddadf7e2df5bf81687b71826bcc9474c1))
+* **portal:** force-directed layout for the seam, not three columns ([49e01e3](https://github.com/rambaarde/nacre/commit/49e01e34a67a8e0e416d949159b42418e06d16e9))
+* **portal:** force-directed layout for the seam, not three columns ([d5ad3de](https://github.com/rambaarde/nacre/commit/d5ad3de720ea41b6e4655c22773acc8b8901e32d))
+* **portal:** the graph collapsed, and the nodes had no colour ([c88e3ca](https://github.com/rambaarde/nacre/commit/c88e3caf21c2a73e168ef6b8c4d24e6a688d9267))
+* **portal:** the graph collapsed, and the nodes had no colour ([f1ac7a2](https://github.com/rambaarde/nacre/commit/f1ac7a25fe9129690642e48252c8920362d14601))
+* **portal:** the graph collapsed, and the nodes had no colour ([8378ab0](https://github.com/rambaarde/nacre/commit/8378ab0a56759b100a10334580bffae7e9558982))
+
 ## [0.8.0](https://github.com/rambaarde/nacre/compare/v0.7.1...v0.8.0) (2026-08-10)
 
 
